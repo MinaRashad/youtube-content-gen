@@ -4,7 +4,7 @@ the purpose of this app is to become a big channel fast by exploiting the algori
 
 TODO:
 
-1. -Get content (wisdom, just some text,..etc)-
+1. ~~Get content (wisdom, just some text,..etc)~~ **DONE**
 2. Generate a picture with that text
 3. create a 5~7 sec video
 4. upload it to youtube
@@ -12,5 +12,8 @@ TODO:
 ### Getting content
 
 I decide to use https://www.quotes.net/api.php , https://animechan.vercel.app/api/random 
-, https://motivational-quote-api.herokuapp.com/quotes/random
+, ~~ https://motivational-quote-api.herokuapp.com/quotes/random ~~ 
 
+I havent decided what to use yet
+
+### Making
