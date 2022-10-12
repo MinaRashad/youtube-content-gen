@@ -11,5 +11,6 @@ TODO:
 
 ### Getting content
 
-I decide to use https://www.quotes.net/api.php
+I decide to use https://www.quotes.net/api.php , https://animechan.vercel.app/api/random 
+, https://motivational-quote-api.herokuapp.com/quotes/random
 
