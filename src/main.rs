@@ -19,7 +19,7 @@ struct JsonQuote{
 
 const WIDTH: u32 = 1080;
 const HEIGHT:u32 = 1920;
-const FONTSIZE:u32=50;
+const FONTSIZE:u32=75;
 
 fn main() {
             
@@ -69,14 +69,14 @@ fn CreateImage(quote:&Quote) -> RgbImage{
 
     // we need to add space before we go out of bounds
     // we will do that be calculating ( (sentence_length*FONTSIZE)%(width- 2*padding) ) / FONTSIZE
-    // this will give us the number of letters in each line
+    // this will give us the number of letters in each line, but I am not sure why it doesnt work
     let sentence_length = quote.quote.len() as u32;
     let padding = WIDTH/8;
+    let h_padding = HEIGHT/3;
 
     let quote_= &quote.quote.replace("\n", " ");
 
-    let letters_in_line =  35;
-
+    let letters_in_line = 20;
     println!("{}",sentence_length);
     let mut current_letters_in_line = 0;
     let lines_in_text= sentence_length%letters_in_line;
@@ -92,7 +92,7 @@ fn CreateImage(quote:&Quote) -> RgbImage{
                 if current_letters_in_line > letters_in_line{
                     
                     draw_text_mut(&mut img, Rgb([255u8, 255u8, 255u8]),
-                    padding as i32, ((HEIGHT/4) + line_num*FONTSIZE) as i32, scale, &font, &text);
+                    padding as i32, ((h_padding) + line_num*FONTSIZE) as i32, scale, &font, &text);
                     
                     line_num +=1;
                     text = String::new();
@@ -103,27 +103,27 @@ fn CreateImage(quote:&Quote) -> RgbImage{
                 
             }
             draw_text_mut(&mut img, Rgb([255u8, 255u8, 255u8]),
-                    padding as i32, ((HEIGHT/4) + line_num*FONTSIZE) as i32, scale, &font, &text)
+                    padding as i32, ((h_padding) + line_num*FONTSIZE) as i32, scale, &font, &text)
 
 
     }else{
         let text= quote_.clone();
         draw_text_mut(&mut img, Rgb([255u8, 255u8, 255u8]),
-                     padding as i32, ((HEIGHT/4) + line_num*FONTSIZE) as i32,
+                     padding as i32, ((h_padding) + line_num*FONTSIZE) as i32,
                      scale, &font, &text);
     }
     let mut author="--".to_string();
     author += quote.author.as_str();
     draw_text_mut(&mut img, Rgb([255u8, 255u8, 255u8]),
-                     padding as i32,((HEIGHT/4) + (line_num+3)*FONTSIZE) as i32,
+                     padding as i32,((h_padding) + (line_num+3)*FONTSIZE) as i32,
                      scale, &font,&author);
 
 
     scale.x *= 2.0;
     scale.y *= 2.0;
     draw_text_mut(&mut img, Rgb([255u8, 255u8, 255u8]),
-                     padding as i32, ((HEIGHT/50) + line_num*FONTSIZE) as i32,
-                     scale, &font, "a Message for you");
+                     padding as i32, (HEIGHT/5) as i32,
+                     scale, &font, "for you ...");
 
     
     return  img;
