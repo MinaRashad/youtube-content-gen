@@ -1,17 +1,18 @@
 // imports
-    use reqwest::{self,header::AUTHORIZATION};
+    use reqwest::{self,header::*};
     use serde::{Deserialize, Serialize};
     use image::{ImageBuffer,RgbImage, Rgb};
     use image;
     use imageproc::drawing::{draw_text_mut};
     use image::imageops::colorops::invert;
     use rusttype::{Font, Scale};
-    use tweet;
     use std;
     use rand::{self,Rng, distributions::Alphanumeric};
     use std::time::{SystemTime};
     use base64;
     use urlencoding;
+    use hmac_sha1_compact::HMAC;
+    use hmacsha1::hmac_sha1;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Quote{
@@ -28,9 +29,6 @@ struct JsonQuote{
 struct CredentialsObj{
     API_KEY:String,
     API_SECRET:String,
-    TOKEN:String,
-    CLIENT_ID:String,
-    CLIENT_SECRET:String,
     ACCESS_TOKEN:String,
     ACCESS_TOKEN_SECRET:String
 }
@@ -60,18 +58,18 @@ fn main() {
         // creating an image
 
 
-        let img :RgbImage = CreateImage(&res); 
-        println!("{} \n \t {}",res.quote, res.author);
+        // let img :RgbImage = CreateImage(&res); 
+        // println!("{} \n \t {}",res.quote, res.author);
 
 
-        // now we have the image, We can post to twitter as an initial step towards
-        // making a big social profile
-        let mut tweet:RgbImage = ImageBuffer::new(WIDTH,HEIGHT);
-        tweet.clone_from(&img);
+        // // now we have the image, We can post to twitter as an initial step towards
+        // // making a big social profile
+        // let mut tweet:RgbImage = ImageBuffer::new(WIDTH,HEIGHT);
+        // tweet.clone_from(&img);
 
-        invert(&mut tweet);
-        img.save("output.png").unwrap();
-        tweet.save("output_tweet.png").unwrap();
+        // invert(&mut tweet);
+        // img.save("output.png").unwrap();
+        // tweet.save("output_tweet.png").unwrap();
 
 
 
@@ -117,6 +115,8 @@ fn CreateImage(quote:&Quote) -> RgbImage{
     let font = Vec::from(include_bytes!("Raleway-Medium.ttf") as &[u8]);
     let font = Font::try_from_vec(font).unwrap();
     let FONTSIZE = if (quote.quote.len() as f32 /17.0) > 15. {75/2} else {75};
+    let letters_in_line =if (quote.quote.len() as f32 /17.0) > 15. {17*2} else {17} ;
+
     let mut scale = Scale{
             x:(FONTSIZE) as f32,
             y:(FONTSIZE as f32 *1.1)
@@ -133,7 +133,6 @@ fn CreateImage(quote:&Quote) -> RgbImage{
 
     let quote_= &quote.quote.replace("\n", " ");
 
-    let letters_in_line = 17;
 
     let mut current_letters_in_line = 0;
 
@@ -198,26 +197,25 @@ fn tweet_with(credentials:CredentialsObj){
   --header 'authorization: OAuth oauth_consumer_key="CONSUMER_API_KEY", oauth_nonce="OAUTH_NONCE", oauth_signature="OAUTH_SIGNATURE", oauth_signature_method="HMAC-SHA1", oauth_timestamp="OAUTH_TIMESTAMP", oauth_token="ACCESS_TOKEN", oauth_version="1.0"' \
     */
     let client =  reqwest::blocking::Client::new();
-    let url = "https://api.twitter.com/1.1/statuses/update.json?status=Hello%20world";//"https://upload.twitter.com/1.1/media/upload.json";
+    let url = "https://api.twitter.com/1.1/statuses/update.json";//"https://upload.twitter.com/1.1/media/upload.json";
     let img = std::fs::read("output_tweet.png").unwrap();
     let img_size = img.len();
     let img_size = img_size.to_string();
     let img_size = img_size.as_str();
-    let parameters = [("command","INIT" ),("total_bytes",img_size),
-                                        ("media_type","image/png")];
+    let parameters = [("include_entities","true"),("status","Hello Ladies + Gentlemen, a signed OAuth request!")]; //[("command","INIT" ),("total_bytes",img_size),                                    ("media_type","image/png")];
 
 
 
 
     // first we need to sign our request
     // Oauth Variables:
-    let oauth_consumer_key = credentials.API_KEY;
+    let oauth_consumer_key = &credentials.API_KEY;
     let oauth_signature_method = "HMAC-SHA1";
-    let oauth_token = credentials.ACCESS_TOKEN;
+    let oauth_token =  &credentials.ACCESS_TOKEN;
     let oauth_version = "1.0";
 
     // We now have all static oauth variables
-    // we will start making our signiture
+    // we will start making our signature
 
     let mut parameters_string= String::new();
     for i in 0..parameters.len(){
@@ -225,49 +223,96 @@ fn tweet_with(credentials:CredentialsObj){
         if i != parameters.len()-1 {parameters_string += "&"}
     }
 
+    let timeStampINIT = get_timeStamp();
+    let Oauth_nonceINIT =gen_oauth_nonce();
 
-    print!("{}",get_signiture(&oauth_consumer_key, gen_oauth_nonce(),
-                                &oauth_signature_method.to_string(),
-                                get_timeStamp(), &oauth_token,
-                                &oauth_version.to_string(), parameters_string))
+    let signatureINIT = get_signature(&oauth_consumer_key, &timeStampINIT, &Oauth_nonceINIT,
+                                &oauth_signature_method.to_string(), &oauth_token,
+                                &oauth_version.to_string(), &parameters_string, 
+                                &url.to_string(), "POST".to_string(), &credentials);  
+
+    // creating header
+    let mut DST = String::from("OAuth ");
+    DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_consumer_key"), urlencoding::encode(&oauth_consumer_key) ).as_str();
+    DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_nonce"), urlencoding::encode(&Oauth_nonceINIT) ).as_str();
+    DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_signature"), urlencoding::encode(&signatureINIT) ).as_str();
+    DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_signature_method"), urlencoding::encode(&oauth_signature_method) ).as_str();
+    DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_timestamp"), timeStampINIT ).as_str();
+    DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_token"), urlencoding::encode(&oauth_token) ).as_str();
+    DST += format!("{}=\"{}\"", urlencoding::encode("oauth_version"), urlencoding::encode(&oauth_version) ).as_str();
+
+
+    println!("Consumer key: {}\nNonce: {}\nSignature: {}\nSignature method: {}\nTimestamp: {}\nToken: {}\nVersion: {}\n\n",
+            oauth_consumer_key, Oauth_nonceINIT, signatureINIT,oauth_signature_method, timeStampINIT,
+        oauth_token,oauth_version);
+
+    let responseTest = client.post(url)
+                                            .header(AUTHORIZATION, &DST)
+                                            .query(&parameters)
+                                            .send()
+                                            .unwrap()
+                                            .text().unwrap();
+
+    println!("{} \n\n\n {}" ,&responseTest, DST);
+
+
 
 }
 fn gen_oauth_nonce() -> String{
-    return base64::encode( rand::thread_rng()
+    let randomStr = rand::thread_rng()
     .sample_iter(&Alphanumeric)
     .take(32)
     .map(char::from)
-    .collect::<String>());
+    .collect::<String>();
+    let mut encoding = base64::encode(randomStr);
+    encoding.retain(|c| c.is_alphanumeric());
+    return encoding;
 }
 
 fn get_timeStamp()-> u128{
-    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis()
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as u128
 }
 
-fn get_signiture(oauth_consumer_key:&String, oauth_nonce:String, 
-                    oauth_signature_method:&String, timeStamp: u128, oauth_token:&String, oauth_version:&String,
-                    parametersString:String) ->String{
+fn get_signature(oauth_consumer_key:&String,timeStamp:&u128,oauth_nonce:&String,
+                    oauth_signature_method:&String, oauth_token:&String, oauth_version:&String,
+                    parametersString:&String, url:&String, method:String, credentials:&CredentialsObj) ->String{
 
     // following https://developer.twitter.com/en/docs/authentication/oauth-1-0a/creating-a-signature#f1
-        let mut signiture_base = String::from("include_entities=true&");
-            signiture_base += format!("oauth_consumer_key={}&",oauth_consumer_key).as_str();
-            signiture_base += format!("oauth_nonce={}&",oauth_nonce).as_str();
-            signiture_base += format!("oauth_signature_method={}&",oauth_signature_method).as_str();
-            signiture_base += format!("oauth_timestamp={}&",timeStamp).as_str();
-            signiture_base += format!("oauth_token={}&",oauth_token).as_str();
-            signiture_base += format!("oauth_version={}&",oauth_version).as_str();
-            signiture_base += parametersString.as_str();
+        let mut signature_base = String::new();
+            signature_base += format!("oauth_consumer_key={}&",oauth_consumer_key).as_str();
+            signature_base += format!("oauth_nonce={}&",oauth_nonce).as_str();
+            signature_base += format!("oauth_signature_method={}&",oauth_signature_method).as_str();
+            signature_base += format!("oauth_timestamp={}&",timeStamp).as_str();
+            signature_base += format!("oauth_token={}&",oauth_token).as_str();
+            signature_base += format!("oauth_version={}&",oauth_version).as_str();
+            signature_base += parametersString.as_str();
 
-    let mut signiture_base_vec = signiture_base.split("&").collect::<Vec<&str>>();
-    signiture_base_vec.sort_by(|a,b| a.to_lowercase().cmp(&b.to_lowercase()));
-
-    let mut signiture_base = String::new();
-    for prop in signiture_base_vec.into_iter() {
-        let mut pair = prop.split("=").collect::<Vec<&str>>();
+            let mut signature_base_vec = signature_base.split("&").collect::<Vec<&str>>();
+    signature_base_vec.sort_by(|a,b| a.to_lowercase().cmp(&b.to_lowercase()));
+    let mut signature_base = String::new();
+    for prop in signature_base_vec.into_iter() {
+        let pair = prop.split("=").collect::<Vec<&str>>();
         let key = urlencoding::encode(pair[0]).into_owned();
         let value = urlencoding::encode(pair[1]).into_owned();
-        signiture_base += format!("{}={}&",key,value).as_mut_str();
+        signature_base += format!("{}={}&",key,value).as_mut_str();
     }
+    
 
-    return signiture_base;
+    signature_base = format!("{}&{}&{}",method,urlencoding::encode(url).into_owned(),
+                        urlencoding::encode(&signature_base[0..signature_base.len()-1]).into_owned());
+    println!("{} \n\n",signature_base);
+
+    let signing_key = format!("{}&{}",
+                urlencoding::encode(credentials.API_SECRET.as_str()),
+                urlencoding::encode(credentials.ACCESS_TOKEN_SECRET.as_str()));
+
+
+    let sign_hash =hmac_sha1(signing_key.as_bytes(),signature_base.as_bytes(), );
+
+
+    // just making a test yo make sure its working
+        
+    let signature = base64::encode(sign_hash);
+    
+    return signature;
 }
