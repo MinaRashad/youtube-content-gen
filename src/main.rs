@@ -25,6 +25,8 @@ struct Quote{
 struct JsonQuote{
     result:Quote
 }
+
+// twitter stuff
 #[derive(Debug, Deserialize, Serialize)]
 struct CredentialsObj{
     API_KEY:String,
@@ -34,19 +36,12 @@ struct CredentialsObj{
 }
 
 #[derive(Debug , Deserialize, Serialize)]
-struct ImgData{
-    image_type: String,
-    w: u16,
-    h: u16
-}
-#[derive(Debug , Deserialize, Serialize)]
 struct InitResponse {
         media_id:u128,
         media_id_string:String,
-        size:usize,
         expires_after_secs: usize,
-        image:ImgData
 }
+
 
 const WIDTH: u32 = 1080;
 const HEIGHT:u32 = 1920;
@@ -58,18 +53,18 @@ fn main() {
         // creating an image
 
 
-        // let img :RgbImage = CreateImage(&res); 
-        // println!("{} \n \t {}",res.quote, res.author);
+        let img :RgbImage = CreateImage(&res); 
+        println!("{} \n \t {}",res.quote, res.author);
 
 
-        // // now we have the image, We can post to twitter as an initial step towards
-        // // making a big social profile
-        // let mut tweet:RgbImage = ImageBuffer::new(WIDTH,HEIGHT);
-        // tweet.clone_from(&img);
+        // now we have the image, We can post to twitter as an initial step towards
+        // making a big social profile
+        let mut tweet:RgbImage = ImageBuffer::new(WIDTH,HEIGHT);
+        tweet.clone_from(&img);
 
-        // invert(&mut tweet);
-        // img.save("output.png").unwrap();
-        // tweet.save("output_tweet.png").unwrap();
+        invert(&mut tweet);
+        img.save("output.png").unwrap();
+        tweet.save("output_tweet.png").unwrap();
 
 
 
@@ -189,6 +184,9 @@ fn tweet_with(credentials:CredentialsObj){
     /*
 
     from docs: 
+        https://developer.twitter.com/en/docs/twitter-api/v1/media/upload-media/api-reference/post-media-upload-init
+        https://developer.twitter.com/en/docs/twitter-api/v1/media/upload-media/api-reference/post-media-upload-append
+        https://developer.twitter.com/en/docs/twitter-api/v1/media/upload-media/api-reference/post-media-upload-finalize
 
     curl --request POST \
 
@@ -197,12 +195,15 @@ fn tweet_with(credentials:CredentialsObj){
   --header 'authorization: OAuth oauth_consumer_key="CONSUMER_API_KEY", oauth_nonce="OAUTH_NONCE", oauth_signature="OAUTH_SIGNATURE", oauth_signature_method="HMAC-SHA1", oauth_timestamp="OAUTH_TIMESTAMP", oauth_token="ACCESS_TOKEN", oauth_version="1.0"' \
     */
     let client =  reqwest::blocking::Client::new();
-    let url = "https://api.twitter.com/1.1/statuses/update.json";//"https://upload.twitter.com/1.1/media/upload.json";
+    let url = "https://upload.twitter.com/1.1/media/upload.json";
     let img = std::fs::read("output_tweet.png").unwrap();
+    
+
     let img_size = img.len();
     let img_size = img_size.to_string();
     let img_size = img_size.as_str();
-    let parameters = [("include_entities","true"),("status","Hello Ladies + Gentlemen, a signed OAuth request!")]; //[("command","INIT" ),("total_bytes",img_size),                                    ("media_type","image/png")];
+    let parameters = [("command","INIT" ),("total_bytes",img_size),("media_type","tweet_image") ,("media_category","tweet_image")];
+
 
 
 
@@ -216,19 +217,15 @@ fn tweet_with(credentials:CredentialsObj){
 
     // We now have all static oauth variables
     // we will start making our signature
-
-    let mut parameters_string= String::new();
-    for i in 0..parameters.len(){
-        parameters_string += format!("{}={}",parameters[i].0,parameters[i].1).as_str();
-        if i != parameters.len()-1 {parameters_string += "&"}
-    }
+    
+    let mut parameters_INIT= stringify_parameters(&parameters);
 
     let timeStampINIT = get_timeStamp();
     let Oauth_nonceINIT =gen_oauth_nonce();
 
     let signatureINIT = get_signature(&oauth_consumer_key, &timeStampINIT, &Oauth_nonceINIT,
                                 &oauth_signature_method.to_string(), &oauth_token,
-                                &oauth_version.to_string(), &parameters_string, 
+                                &oauth_version.to_string(), &parameters_INIT, 
                                 &url.to_string(), "POST".to_string(), &credentials);  
 
     // creating header
@@ -246,15 +243,129 @@ fn tweet_with(credentials:CredentialsObj){
             oauth_consumer_key, Oauth_nonceINIT, signatureINIT,oauth_signature_method, timeStampINIT,
         oauth_token,oauth_version);
 
-    let responseTest = client.post(url)
+        //initialising
+    let InitResponse : InitResponse= client.post(url.to_owned() )
                                             .header(AUTHORIZATION, &DST)
                                             .query(&parameters)
                                             .send()
                                             .unwrap()
-                                            .text().unwrap();
+                                            .json().unwrap();
+    println!("Initial {:?}",InitResponse);
 
-    println!("{} \n\n\n {}" ,&responseTest, DST);
+    let media_id = InitResponse.media_id;
+    let media_id = media_id.to_string();
+    let chunks = img.chunks(512);
+    let mut idx = 0;
 
+    for chunk in chunks{
+                
+            let imgdata = base64::encode(chunk);
+            let imgdata = imgdata.as_str();
+            let segment_index = idx.to_string();
+
+            // let imgdataSTR = &&img.into_iter().map(|c| char::from(c)).collect::<String>();            
+            let parameters_append = [ ("command","APPEND"), ("media_id",media_id.as_str()),
+                                            ("media_data",imgdata),("segment_index", segment_index.as_str())];
+            
+            
+            let parameters_appendSTR = stringify_parameters(&parameters_append);
+            
+            let timeStamp_append = get_timeStamp();
+            let Oauth_nonce_append =gen_oauth_nonce();
+
+            let signature_append = get_signature(&oauth_consumer_key, &timeStamp_append, &Oauth_nonce_append,
+                                        &oauth_signature_method.to_string(), &oauth_token,
+                                        &oauth_version.to_string(), &parameters_appendSTR, 
+                                        &url.to_string(), "POST".to_string(), &credentials);
+
+            
+            // creating OAuth header
+            let mut DST = String::from("OAuth ");
+            DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_consumer_key"), urlencoding::encode(&oauth_consumer_key) ).as_str();
+            DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_nonce"), urlencoding::encode(&Oauth_nonce_append) ).as_str();
+            DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_signature"), urlencoding::encode(&signature_append) ).as_str();
+            DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_signature_method"), urlencoding::encode(&oauth_signature_method) ).as_str();
+            DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_timestamp"), timeStamp_append ).as_str();
+            DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_token"), urlencoding::encode(&oauth_token) ).as_str();
+            DST += format!("{}=\"{}\"", urlencoding::encode("oauth_version"), urlencoding::encode(&oauth_version) ).as_str();
+
+
+                // appending
+            let _append_response= client.post(url.to_owned() )
+                                                    .header(AUTHORIZATION, &DST)
+                                                    .query(&parameters_append)
+                                                    .send();
+            idx += 1
+    }
+
+    //finalizing
+    let parameters_final = [ ("command","FINALIZE"), ("media_id",media_id.as_str())];
+    let parameters_finalSTR = stringify_parameters(&parameters_final);
+
+    let timeStamp_final = get_timeStamp();
+    let Oauth_nonce_final =gen_oauth_nonce();
+
+    let signature_final = get_signature(&oauth_consumer_key, &timeStamp_final, &Oauth_nonce_final,
+        &oauth_signature_method.to_string(), &oauth_token,
+        &oauth_version.to_string(), &parameters_finalSTR, 
+        &url.to_string(), "POST".to_string(), &credentials);
+
+
+            // creating OAuth header
+    let mut DST = String::from("OAuth ");
+    DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_consumer_key"), urlencoding::encode(&oauth_consumer_key) ).as_str();
+    DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_nonce"), urlencoding::encode(&Oauth_nonce_final) ).as_str();
+    DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_signature"), urlencoding::encode(&signature_final) ).as_str();
+    DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_signature_method"), urlencoding::encode(&oauth_signature_method) ).as_str();
+    DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_timestamp"), timeStamp_final ).as_str();
+    DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_token"), urlencoding::encode(&oauth_token) ).as_str();
+    DST += format!("{}=\"{}\"", urlencoding::encode("oauth_version"), urlencoding::encode(&oauth_version) ).as_str();
+
+    let Final_Response = client.post(url.to_owned() )
+                                    .header(AUTHORIZATION, &DST)
+                                    .query(&parameters_final)
+                                    .send()
+                                    .unwrap()
+                                    .text().unwrap();
+
+    println!("Final response text: {}",Final_Response);
+
+    
+    // thats it we uploaded the image, lets tweet
+
+    let url = "https://api.twitter.com/1.1/statuses/update.json";
+    let parameters = [("status","" ), ("media_ids",media_id.as_str())];
+
+    let mut parameters_tweet= stringify_parameters(&parameters);
+
+    let timeStamp_tweet = get_timeStamp();
+    let Oauth_nonce_tweet =gen_oauth_nonce();
+    
+    
+    let signature_tweet = get_signature(&oauth_consumer_key, &timeStamp_tweet, &Oauth_nonce_tweet,
+        &oauth_signature_method.to_string(), &oauth_token,
+        &oauth_version.to_string(), &parameters_tweet, 
+        &url.to_string(), "POST".to_string(), &credentials);  
+
+// creating header
+let mut DST = String::from("OAuth ");
+DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_consumer_key"), urlencoding::encode(&oauth_consumer_key) ).as_str();
+DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_nonce"), urlencoding::encode(&Oauth_nonce_tweet) ).as_str();
+DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_signature"), urlencoding::encode(&signature_tweet) ).as_str();
+DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_signature_method"), urlencoding::encode(&oauth_signature_method) ).as_str();
+DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_timestamp"), timeStamp_tweet ).as_str();
+DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_token"), urlencoding::encode(&oauth_token) ).as_str();
+DST += format!("{}=\"{}\"", urlencoding::encode("oauth_version"), urlencoding::encode(&oauth_version) ).as_str();
+
+
+//initialising
+let tweet_Response = client.post(url.to_owned() )
+                    .header(AUTHORIZATION, &DST)
+                    .query(&parameters)
+                    .send()
+                    .unwrap()
+                    .text().unwrap();
+println!("Initial {:?}",tweet_Response);
 
 
 }
@@ -277,14 +388,15 @@ fn get_signature(oauth_consumer_key:&String,timeStamp:&u128,oauth_nonce:&String,
                     oauth_signature_method:&String, oauth_token:&String, oauth_version:&String,
                     parametersString:&String, url:&String, method:String, credentials:&CredentialsObj) ->String{
 
+
     // following https://developer.twitter.com/en/docs/authentication/oauth-1-0a/creating-a-signature#f1
         let mut signature_base = String::new();
-            signature_base += format!("oauth_consumer_key={}&",oauth_consumer_key).as_str();
-            signature_base += format!("oauth_nonce={}&",oauth_nonce).as_str();
-            signature_base += format!("oauth_signature_method={}&",oauth_signature_method).as_str();
+            signature_base += format!("oauth_consumer_key={}&",urlencoding::encode(oauth_consumer_key) ).as_str();
+            signature_base += format!("oauth_nonce={}&", urlencoding::encode(oauth_nonce)).as_str();
+            signature_base += format!("oauth_signature_method={}&",urlencoding::encode(oauth_signature_method) ).as_str();
             signature_base += format!("oauth_timestamp={}&",timeStamp).as_str();
-            signature_base += format!("oauth_token={}&",oauth_token).as_str();
-            signature_base += format!("oauth_version={}&",oauth_version).as_str();
+            signature_base += format!("oauth_token={}&",urlencoding::encode(oauth_token) ).as_str();
+            signature_base += format!("oauth_version={}&",urlencoding::encode(oauth_version) ).as_str();
             signature_base += parametersString.as_str();
 
             let mut signature_base_vec = signature_base.split("&").collect::<Vec<&str>>();
@@ -292,15 +404,16 @@ fn get_signature(oauth_consumer_key:&String,timeStamp:&u128,oauth_nonce:&String,
     let mut signature_base = String::new();
     for prop in signature_base_vec.into_iter() {
         let pair = prop.split("=").collect::<Vec<&str>>();
-        let key = urlencoding::encode(pair[0]).into_owned();
-        let value = urlencoding::encode(pair[1]).into_owned();
+        if pair.len()==1{panic!("Something is not right:")}
+        let key = pair[0];
+        let value = pair[1];
         signature_base += format!("{}={}&",key,value).as_mut_str();
     }
     
 
     signature_base = format!("{}&{}&{}",method,urlencoding::encode(url).into_owned(),
                         urlencoding::encode(&signature_base[0..signature_base.len()-1]).into_owned());
-    println!("{} \n\n",signature_base);
+    //println!("{} \n\n",signature_base);
 
     let signing_key = format!("{}&{}",
                 urlencoding::encode(credentials.API_SECRET.as_str()),
@@ -316,3 +429,14 @@ fn get_signature(oauth_consumer_key:&String,timeStamp:&u128,oauth_nonce:&String,
     
     return signature;
 }
+
+fn stringify_parameters (parameters : &[(&str,&str)]) ->String{
+    let mut parameters_string= String::new();
+    for i in 0..parameters.len(){
+        parameters_string += format!("{}={}",urlencoding::encode(parameters[i].0) ,urlencoding::encode(parameters[i].1)).as_str();
+        if i != parameters.len()-1 {parameters_string += "&"}
+    }
+    return parameters_string;
+}
+
+
