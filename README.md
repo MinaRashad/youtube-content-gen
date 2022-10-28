@@ -17,4 +17,4 @@ https://www.abbreviations.com/services/v2/quotes.php?uid=10998&tokenid=uNMIuLwQm
 I havent decided what to use yet
 
 ### Making Image
-
+I made the image with image crate. Its simple at the moment, so Lets
