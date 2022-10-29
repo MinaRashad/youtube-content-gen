@@ -1,20 +1,19 @@
+#![allow(non_snake_case)]
 // imports
-    use reqwest::{self,header::*, blocking};
+    use reqwest::{self,header::*};
     use serde::{Deserialize, Serialize};
-    use image::{ImageBuffer,RgbImage, Rgb, imageops};
+    use image::{ImageBuffer,RgbImage, Rgb};
     use image;
     use imageproc::drawing::{draw_text_mut};
     use image::imageops::colorops::invert;
     use rusttype::{Font, Scale};
-    use std::{self, io};
-    use std::fs::File;
-    use std::io::{BufWriter, Write};
+    use std::{self, io, fs};
+    use std::io::Write;
     use rand::{self,Rng, distributions::Alphanumeric};
     use std::time::{SystemTime};
     use base64;
     use urlencoding;
     use hmacsha1::hmac_sha1;
-    use win_ocr::ocr;
     
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -49,7 +48,7 @@ struct InitResponse {
 const WIDTH: u32 = 1080;
 const HEIGHT:u32 = 1920;
 
-const NUMBER_OF_TWEETS :i32 = 20;
+const NUMBER_OF_TWEETS :i32 = 1;
 
 
 fn main() {
@@ -57,42 +56,62 @@ fn main() {
         
         
         // creating an image
-        // println!("{} \n \t {}",res.quote, res.author);
+
         let mut count =0;
-        println!("==================\nTweet #{} : \n",count+1);
         loop {
+        println!("==================\nTweet #{} : \n",count+1);
+
         let img :RgbImage = CreateImage(&res, true); 
 
         println!("Image created");
+
         // now we have the image, We can post to twitter as an initial step towards
         // making a big social profile
-        let mut tweet:RgbImage = ImageBuffer::new(WIDTH,HEIGHT);
-        tweet.clone_from(&img);
 
-        invert(&mut tweet);
-        println!("Tweet Image created");
-        img.save("output.png").unwrap();
-        tweet.save("output_tweet.png").unwrap();
+        let img = fs::read("output_tweet.jpeg").unwrap();
+        let img_Name = format!("quote_{:03}",count+1); // it gets a unique string so its good
+
+        println!("saving to quotes/{}.jpeg",img_Name);
+        let _ = fs::copy("output_tweet.jpeg", format!("quotes/{}.jpeg",img_Name).as_str());
 
         //posting to twitter
         let credentialsText = std::fs::read_to_string("src/credentials_tweeter.json")
         .unwrap();
         let credentials:CredentialsObj = serde_json::from_str(&credentialsText).unwrap();
 
-        tweet_with(credentials,"output_tweet","jpeg");
+        // UNCOMMENT TO TWEET
+        //tweet_with(credentials,"output_tweet.jpeg");
+        
+        // now we will use ffmpeg to make a video out of the images
+        // make sure to download ffmpeg and add it to path or add it in the same file
 
-        if count >= NUMBER_OF_TWEETS{
+        let command = format!("ffmpeg -framerate 1/5 -i quotes/{}.jpeg -c:v libx264 -r 30 -pix_fmt yuv420p quotes/{}.mp4",
+                                        img_Name,img_Name); 
+
+        println!("Creating video with fmmpeg...");
+
+        let o = std::process::Command::new("cmd")
+        .args(["/C",command.as_str()])
+        .output()
+        .expect("Something went wrong");
+
+        println!("Video created with name {}.mp4",img_Name);
+
+        if count+1 == NUMBER_OF_TWEETS{
             break;
         }else{
             count+=1
         }
        
         }
-        //let rustlang = egg_mode::user::show("rustlang", con_token).await.unwrap();
+        
+
+        // let rustlang = egg_mode::user::show("rustlang", con_token).await.unwrap();
 
         //println!("{} (@{})", rustlang.name, rustlang.screen_name);
 
 }
+
 
 
 /**
@@ -115,6 +134,8 @@ fn get_quote() -> Result<Quote, reqwest::Error> {
  * createImage generates the image with the given quote
  */
 
+
+ // Tweeter Oauth 1.0 stuff
 fn CreateImage(quote:&Quote, inspiro:bool) -> RgbImage{
     if inspiro{
         let imgurl = reqwest::blocking::get("https://inspirobot.me/api?generate=true")
@@ -123,7 +144,7 @@ fn CreateImage(quote:&Quote, inspiro:bool) -> RgbImage{
                                                 .unwrap().bytes().unwrap();
         
         std::fs::write("output_tweet.jpeg", &img).unwrap_or(());
-    
+        
         // let file = File::create("test_tweet.png").unwrap();
         // let ref mut buff = BufWriter::new(file);
         // let encoder = image::codecs::png::PngEncoder::new(buff);
@@ -151,7 +172,7 @@ fn CreateImage(quote:&Quote, inspiro:bool) -> RgbImage{
     // we need to add space before we go out of bounds
     // we will do that be calculating ( (sentence_length*FONTSIZE)%(width- 2*padding) ) / FONTSIZE
     // this will give us the number of letters in each line, but I am not sure why it doesnt work
-    let sentence_length = quote.quote.len() as u32;
+    // let sentence_length = quote.quote.len() as u32;
     let padding = WIDTH/8;
     let h_padding = HEIGHT/3;
 
@@ -209,7 +230,7 @@ fn CreateImage(quote:&Quote, inspiro:bool) -> RgbImage{
 }
 
 
-fn tweet_with(credentials:CredentialsObj, filename:&str, ext:&str){
+fn tweet_with(credentials:CredentialsObj, filename:&str){
     /*
 
     from docs: 
@@ -227,7 +248,7 @@ fn tweet_with(credentials:CredentialsObj, filename:&str, ext:&str){
 
     let client =  reqwest::blocking::Client::new();
     let url = "https://upload.twitter.com/1.1/media/upload.json";
-    let img = std::fs::read(filename.to_owned()+"."+ext).unwrap();
+    let img = std::fs::read(filename.to_owned()).unwrap();
     
 
     let img_size = img.len();
@@ -249,7 +270,7 @@ fn tweet_with(credentials:CredentialsObj, filename:&str, ext:&str){
     // We now have all static oauth variables
     // we will start making our signature
     
-    let mut parameters_INIT= stringify_parameters(&parameters);
+    let parameters_INIT= stringify_parameters(&parameters);
 
     let timeStampINIT = get_timeStamp();
     let Oauth_nonceINIT =gen_oauth_nonce();
@@ -282,6 +303,7 @@ fn tweet_with(credentials:CredentialsObj, filename:&str, ext:&str){
     let media_id = InitResponse.media_id;
     let media_id = media_id.to_string();
     let chunks = img.chunks(512);
+    let chunks_num:usize = chunks.len();
     let mut idx = 0;
     println!("Uploading...");
     print!("[");
@@ -324,7 +346,8 @@ fn tweet_with(credentials:CredentialsObj, filename:&str, ext:&str){
                                                     .query(&parameters_append)
                                                     .send();
             idx += 1;
-            if idx%8 == 0{
+            
+            if (idx+1)%(chunks_num/20) == 0{
                 print!("#");
                 io::stdout().flush().expect("Something went wrong");
             }
@@ -355,7 +378,7 @@ fn tweet_with(credentials:CredentialsObj, filename:&str, ext:&str){
     DST += format!("{}=\"{}\", ", urlencoding::encode("oauth_token"), urlencoding::encode(&oauth_token) ).as_str();
     DST += format!("{}=\"{}\"", urlencoding::encode("oauth_version"), urlencoding::encode(&oauth_version) ).as_str();
     
-    let Final_Response = client.post(url.to_owned() )
+    let _Final_Response = client.post(url.to_owned() )
                                     .header(AUTHORIZATION, &DST)
                                     .query(&parameters_final)
                                     .send()
@@ -370,7 +393,7 @@ fn tweet_with(credentials:CredentialsObj, filename:&str, ext:&str){
     let url = "https://api.twitter.com/1.1/statuses/update.json";
     let parameters = [("status","AI quotes (inspirobot)" ), ("media_ids",media_id.as_str())];
 
-    let mut parameters_tweet= stringify_parameters(&parameters);
+    let parameters_tweet= stringify_parameters(&parameters);
 
     let timeStamp_tweet = get_timeStamp();
     let Oauth_nonce_tweet =gen_oauth_nonce();
@@ -394,7 +417,7 @@ DST += format!("{}=\"{}\"", urlencoding::encode("oauth_version"), urlencoding::e
 
 //initialising
 println!("Tweeting...");
-let tweet_Response = client.post(url.to_owned() )
+let _tweet_Response = client.post(url.to_owned() )
                     .header(AUTHORIZATION, &DST)
                     .query(&parameters)
                     .send()
