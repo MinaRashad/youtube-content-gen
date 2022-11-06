@@ -7,14 +7,18 @@
     use imageproc::drawing::{draw_text_mut};
     use image::imageops::colorops::invert;
     use rusttype::{Font, Scale};
-    use std::{self, io, fs};
+    use std::{self, io, fs, thread, time};
     use std::io::Write;
     use rand::{self,Rng, distributions::Alphanumeric};
     use std::time::{SystemTime};
     use base64;
     use urlencoding;
     use hmacsha1::hmac_sha1;
-    
+    use webbrowser;
+    use rdev::{simulate, Button, EventType, Key, SimulateError};
+    use cli_clipboard::{ClipboardContext, ClipboardProvider};
+
+
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Quote{
@@ -48,12 +52,12 @@ struct InitResponse {
 const WIDTH: u32 = 1080;
 const HEIGHT:u32 = 1920;
 
-const NUMBER_OF_TWEETS :i32 = 1;
+const NUMBER_OF_TWEETS :i32 = 50;
 
 
 fn main() {
+
         let res = Quote { quote: String::new(), author: String::new() };//get_quote().unwrap();
-        
         
         // creating an image
 
@@ -75,27 +79,31 @@ fn main() {
         let _ = fs::copy("output_tweet.jpeg", format!("quotes/{}.jpeg",img_Name).as_str());
 
         //posting to twitter
-        let credentialsText = std::fs::read_to_string("src/credentials_tweeter.json")
+        let credentialsText = std::fs::read_to_string("src/credentials.json")
         .unwrap();
         let credentials:CredentialsObj = serde_json::from_str(&credentialsText).unwrap();
 
-        // UNCOMMENT TO TWEET
-        //tweet_with(credentials,"output_tweet.jpeg");
+
         
         // now we will use ffmpeg to make a video out of the images
         // make sure to download ffmpeg and add it to path or add it in the same file
 
-        let command = format!("ffmpeg -framerate 1/5 -i quotes/{}.jpeg -c:v libx264 -r 30 -pix_fmt yuv420p quotes/{}.mp4",
-                                        img_Name,img_Name); 
+        
+        println!("Stating twitter upload...");
 
-        println!("Creating video with fmmpeg...");
+        tweet_with(credentials,"output_tweet.jpeg");
 
-        let o = std::process::Command::new("cmd")
-        .args(["/C",command.as_str()])
-        .output()
-        .expect("Something went wrong");
+        
 
-        println!("Video created with name {}.mp4",img_Name);
+        
+
+
+
+        // delete video
+        //fs::remove_file(format!("quotes/{}.mp4",img_Name)).unwrap();
+
+
+        //println!("{}.mp4 deleted",img_Name);
 
         if count+1 == NUMBER_OF_TWEETS{
             break;
@@ -104,7 +112,22 @@ fn main() {
         }
        
         }
-        
+
+        let command = format!("ffmpeg -framerate 1/5 -i quotes/quote_%3d.jpeg -c:v libx264 -r 30 -pix_fmt yuv420p quotes/quotes.mp4");
+        println!("Creating video with fmmpeg...");
+
+        let _ = std::process::Command::new("cmd")
+        .args(["/C",command.as_str()])
+        .output()
+        .expect("Something went wrong");
+
+        println!("uploading to youtube...");
+        println!("Removing jpeg...");
+        for i in 0..NUMBER_OF_TWEETS{
+            let _ = fs::remove_file(format!("quotes/quote_{:03}.jpeg",i+1));
+        }        
+
+        upload_to_youtube(format!("quotes\\quotes.mp4").as_str());
 
         // let rustlang = egg_mode::user::show("rustlang", con_token).await.unwrap();
 
@@ -117,7 +140,7 @@ fn main() {
 /**
  * get_quote makes a GET request to an API and retrieve a random quote
  */
-fn get_quote() -> Result<Quote, reqwest::Error> {
+fn _get_quote() -> Result<Quote, reqwest::Error> {
     let url = "https://www.abbreviations.com/services/v2/quotes.php?uid=10998&tokenid=uNMIuLwQmsm1lf7W&format=json";
     let res:JsonQuote =reqwest::blocking::get(url)?
                         .json()?;
@@ -305,6 +328,7 @@ fn tweet_with(credentials:CredentialsObj, filename:&str){
     let chunks = img.chunks(512);
     let chunks_num:usize = chunks.len();
     let mut idx = 0;
+    let mut loading = 0;
     println!("Uploading...");
     print!("[");
     for chunk in chunks{
@@ -346,14 +370,23 @@ fn tweet_with(credentials:CredentialsObj, filename:&str){
                                                     .query(&parameters_append)
                                                     .send();
             idx += 1;
+            // print loading bar
+            // 20 / chunks_num = (idx+1) / x
+            // x = (idx+1) * chunks_num / 20
+            let loading_percent = ( (idx+1)* 100 )/ chunks_num;
+
             
-            if (idx+1)%(chunks_num/20) == 0{
+
+            if loading_percent % 5 == 0 && loading != loading_percent{
+                loading = loading_percent;
                 print!("#");
-                io::stdout().flush().expect("Something went wrong");
+                std::io::stdout().flush().unwrap();
             }
+            
             
     }
     println!("]");
+
 
     //finalizing
     let parameters_final = [ ("command","FINALIZE"), ("media_id",media_id.as_str())];
@@ -496,4 +529,154 @@ fn stringify_parameters (parameters : &[(&str,&str)]) ->String{
     }
    
     return parameters_string;
+}
+
+
+// youtube upload with GUI cuz lazy to do another Oauth1.0a
+
+fn upload_to_youtube(filename:&str){
+
+    webbrowser::open("https://www.youtube.com/upload").unwrap();
+
+    wait(5);
+
+
+    // using clipboard to write easily
+    let mut ctx = ClipboardContext::new().unwrap();
+
+    // data we will need
+    let file_path = std::env::current_dir().unwrap().display().to_string() + "\\" + filename;
+
+    
+
+        
+    // click upload
+
+    do_action(&EventType::MouseMove { x: 729., y: 600. });
+    do_action(&EventType::ButtonPress(Button::Left));
+    do_action(&EventType::ButtonRelease(Button::Left));
+
+    // going to file name text area
+    do_action(&EventType::MouseMove { x: 529., y: 720. });
+    do_action(&EventType::ButtonPress(Button::Left));
+    do_action(&EventType::ButtonRelease(Button::Left));
+    
+    wait(1);
+
+    // pasting the file_path variable
+    ctx.set_contents(file_path.to_owned()).unwrap();
+    do_action(&EventType::ButtonPress(Button::Right));
+    do_action(&EventType::ButtonRelease(Button::Right));
+
+    do_action(&EventType::KeyPress(Key::DownArrow));
+    do_action(&EventType::KeyPress(Key::DownArrow));
+    do_action(&EventType::KeyPress(Key::DownArrow));
+    do_action(&EventType::KeyPress(Key::DownArrow));
+    do_action(&EventType::KeyPress(Key::Return));
+
+    // click select
+    do_action(&EventType::KeyPress(Key::Return));
+
+    wait(5);
+    // Now we need to write title and description
+    // we will reuse from previous video 
+    do_action(&EventType::MouseMove { x: 809., y: 314. });
+    do_action(&EventType::ButtonPress(Button::Left));
+    do_action(&EventType::ButtonRelease(Button::Left));
+    wait(5);
+    do_action(&EventType::MouseMove { x: 570., y: 400. });
+    do_action(&EventType::ButtonPress(Button::Left));
+    do_action( &EventType::ButtonRelease(Button::Left));
+
+    wait(5);
+    // accept and ok
+    for i in 0..7{
+        do_action(&EventType::KeyPress(Key::Tab));
+        do_action(&EventType::KeyRelease(Key::Tab));
+    }
+    
+    
+    do_action(&EventType::KeyPress(Key::Return));
+    do_action(&EventType::KeyRelease(Key::Return));
+
+    // choose not for kids then next
+    wait(2);
+
+    for i in 0..18 {
+        do_action(&EventType::KeyPress(Key::Tab));
+        do_action(&EventType::KeyRelease(Key::Tab));
+    }
+    do_action(&EventType::KeyPress(Key::DownArrow));
+
+    // Next
+    for i in 0..10{
+        do_action(&EventType::KeyPress(Key::Tab));
+
+    }
+
+    do_action(&EventType::KeyPress(Key::Return));
+    do_action(&EventType::KeyRelease(Key::Return));
+
+    //next
+    wait(1);
+    do_action(&EventType::KeyPress(Key::Return));
+    do_action(&EventType::KeyRelease(Key::Return));
+
+    //next
+    wait(1);
+    do_action(&EventType::KeyPress(Key::Return));
+    do_action(&EventType::KeyRelease(Key::Return));
+
+
+    //public
+    do_action(&EventType::ButtonPress(Button::Left));
+    do_action(&EventType::ButtonRelease(Button::Left));
+    do_action(&EventType::KeyPress(Key::DownArrow));
+    do_action(&EventType::KeyPress(Key::DownArrow));
+
+  
+    do_action(&EventType::KeyPress(Key::Return));
+    wait(1);
+    do_action(&EventType::MouseMove { x: 1200., y: 780. });
+    do_action(&EventType::ButtonPress(Button::Left));
+    do_action(&EventType::ButtonRelease(Button::Left));
+
+
+    wait(2);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}
+
+fn do_action(event_type: &EventType) {
+
+    // make a random number from 20 to 400
+    let millis = rand::thread_rng().gen_range(200 ..400);
+    
+    let delay = time::Duration::from_millis(millis);
+    match simulate(event_type) {
+        Ok(()) => (),
+        Err(SimulateError) => {
+            println!("We could not send {:?}", event_type);
+        }
+    }
+    // Let ths OS catchup (at least MacOS)
+    thread::sleep(delay);
+}
+
+fn wait(sec : u64){
+    let delay = time::Duration::from_secs(sec);
+    std::thread::sleep(delay);
 }

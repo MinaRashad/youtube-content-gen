@@ -1,7 +1,8 @@
 /target
-output.png
-output_tweet.jpeg
+*.png
+*.jpeg
 Cargo.lock
-src/credentials_tweeter.json
+src/*.json
 quotes/*
 *.exe
+*.py
